@@ -288,7 +288,7 @@ int transfer_init(
 
   /** - eventually read the selection and evolution functions */
 
-  class_call(transfer_global_selection_read(ptr),
+  class_call(transfer_global_selection_read(ptr, ppt),
              ptr->error_message,
              ptr->error_message);
 
@@ -296,14 +296,14 @@ int transfer_init(
   double* window = NULL;
   if ((ppt->has_cl_lensing_potential == _TRUE_) || (ppt->has_cl_number_count == _TRUE_)) {
     class_call(transfer_precompute_selection(ppr,
-                                             pba,
-                                             ppt,
-                                             ptr,
-                                             tau_rec,
-                                             tau_size_max,
-                                             &(window)),
-               ptr->error_message,
-               ptr->error_message);
+                                            pba,
+                                            ppt,
+                                            ptr,
+                                            tau_rec,
+                                            tau_size_max,
+                                            &(window)),
+              ptr->error_message,
+              ptr->error_message);
   }
 
   /* (a.3.) workspace, allocated in a parallel zone since in openmp
@@ -1650,7 +1650,7 @@ int transfer_source_tau_size(
 
       /* value of l at which the code switches to Limber approximation
          (necessary for next step) */
-      if (_index_tt_in_range_(ptr->index_tt_nc_g5,   ppt->selection_num, ppt->has_nc_gr)) {
+      if(_index_tt_in_range_(ptr->index_tt_nc_g5,   ppt->selection_num, ppt->has_nc_gr)) {
         /* Even if G5 is integrated along the line-of-sight, we do not apply the same Limber criteria as for the other integrated terms, because here we have the derivative of the Bessel.  */
         l_limber=ppr->l_switch_limber_for_nc_local_over_z*ppt->selection_mean[bin];
         *tau_size=MAX(*tau_size,(int)((tau0-tau_min)/((tau0-tau_mean)/2./MIN(l_limber,ppt->l_lss_max)))*ppr->selection_sampling_bessel);
@@ -2240,16 +2240,16 @@ int transfer_sources(
 
         _get_bin_nonintegrated_ncl_(index_tt)
 
-          /* redefine the time sampling */
-          class_call(transfer_selection_sampling(ppr,
-                                                 pba,
-                                                 ppt,
-                                                 ptr,
-                                                 bin,
-                                                 tau0_minus_tau,
-                                                 tau_size),
-                     ptr->error_message,
-                     ptr->error_message);
+        /* redefine the time sampling */
+        class_call(transfer_selection_sampling(ppr,
+                                               pba,
+                                               ppt,
+                                               ptr,
+                                               bin,
+                                               tau0_minus_tau,
+                                               tau_size),
+                   ptr->error_message,
+                   ptr->error_message);
 
         class_test(tau0 - tau0_minus_tau[0] > ppt->tau_sampling[ppt->tau_size-1],
                    ptr->error_message,
@@ -2310,17 +2310,17 @@ int transfer_sources(
 
         _get_bin_integrated_ncl_(index_tt)
 
-          /* redefine the time sampling */
-          class_call(transfer_lensing_sampling(ppr,
-                                               pba,
-                                               ppt,
-                                               ptr,
-                                               bin,
-                                               tau0,
-                                               tau0_minus_tau,
-                                               tau_size),
-                     ptr->error_message,
-                     ptr->error_message);
+        /* redefine the time sampling */
+        class_call(transfer_lensing_sampling(ppr,
+                                             pba,
+                                             ppt,
+                                             ptr,
+                                             bin,
+                                             tau0,
+                                             tau0_minus_tau,
+                                             tau_size),
+                   ptr->error_message,
+                   ptr->error_message);
 
         /* resample the source at those times */
         class_call(transfer_source_resample(ppr,
@@ -2427,6 +2427,7 @@ int transfer_selection_function(
   double dNdz;
   double dln_dNdz_dz;
   int last_index;
+  int row;
 
   /* trivial dirac case */
   if (ppt->selection==dirac) {
@@ -2453,18 +2454,21 @@ int transfer_selection_function(
 
       if (ptr->has_nz_file == _TRUE_) {
 
-        class_test((z<ptr->nz_z[0]) || (z>ptr->nz_z[ptr->nz_size-1]),
-                   ptr->error_message,
-                   "Your input file for the selection function only covers the redshift range [%f : %f]. However, your input for the selection function requires z=%f",
-                   ptr->nz_z[0],
-                   ptr->nz_z[ptr->nz_size-1],
-                   z);
+        double * tmp_nz_nz;
+        double * tmp_nz_ddnz;
 
+        class_alloc(tmp_nz_nz,   sizeof(double)*ptr->nz_size_singlebin, ptr->error_message);
+        class_alloc(tmp_nz_ddnz, sizeof(double)*ptr->nz_size_singlebin, ptr->error_message);
+
+        for(row=0; row < ptr->nz_size_singlebin; row++){
+          tmp_nz_nz[row]   = ptr->nz_nz[ptr->nz_size_singlebin*bin + row];
+          tmp_nz_ddnz[row] = ptr->nz_ddnz[ptr->nz_size_singlebin*bin + row];
+        }
         class_call(array_interpolate_spline(
                                             ptr->nz_z,
-                                            ptr->nz_size,
-                                            ptr->nz_nz,
-                                            ptr->nz_ddnz,
+                                            ptr->nz_size_singlebin,
+                                            tmp_nz_nz,
+                                            tmp_nz_ddnz,
                                             1,
                                             z,
                                             &last_index,
@@ -2473,6 +2477,9 @@ int transfer_selection_function(
                                             ptr->error_message),
                    ptr->error_message,
                    ptr->error_message);
+
+        free(tmp_nz_nz);
+        free(tmp_nz_ddnz);
       }
       else {
 
@@ -2513,11 +2520,21 @@ int transfer_selection_function(
 
       if (ptr->has_nz_file == _TRUE_) {
 
+        double * tmp_nz_nz;
+        double * tmp_nz_ddnz;
+
+        class_alloc(tmp_nz_nz,   sizeof(double)*ptr->nz_size_singlebin, ptr->error_message);
+        class_alloc(tmp_nz_ddnz, sizeof(double)*ptr->nz_size_singlebin, ptr->error_message);
+
+        for(row=0; row < ptr->nz_size_singlebin; row++){
+          tmp_nz_nz[row]   = ptr->nz_nz[ptr->nz_size_singlebin*bin + row];
+          tmp_nz_ddnz[row] = ptr->nz_ddnz[ptr->nz_size_singlebin*bin + row];
+        }
         class_call(array_interpolate_spline(
                                             ptr->nz_z,
-                                            ptr->nz_size,
-                                            ptr->nz_nz,
-                                            ptr->nz_ddnz,
+                                            ptr->nz_size_singlebin,
+                                            tmp_nz_nz,
+                                            tmp_nz_ddnz,
                                             1,
                                             z,
                                             &last_index,
@@ -2526,6 +2543,9 @@ int transfer_selection_function(
                                             ptr->error_message),
                    ptr->error_message,
                    ptr->error_message);
+
+        free(tmp_nz_nz);
+        free(tmp_nz_ddnz);
       }
       else {
 
@@ -2542,8 +2562,52 @@ int transfer_selection_function(
 
     return _SUCCESS_;
   }
+    
+  /*Custom case where we use an input n(z) from a file*/
 
-  /* get here only if selection type was recognized */
+  if (ppt->selection==custom) {
+
+    /* selection function, start it with 1
+    */
+    *selection=1;
+
+    if (ptr->has_nz_file == _TRUE_){
+
+        double * tmp_nz_nz;
+        double * tmp_nz_ddnz;
+
+        class_alloc(tmp_nz_nz,   sizeof(double)*ptr->nz_size_singlebin, ptr->error_message);
+        class_alloc(tmp_nz_ddnz, sizeof(double)*ptr->nz_size_singlebin, ptr->error_message);
+
+        for(row=0; row < ptr->nz_size_singlebin; row++){
+          tmp_nz_nz[row]   = ptr->nz_nz[ptr->nz_size_singlebin*bin + row];
+          tmp_nz_ddnz[row] = ptr->nz_ddnz[ptr->nz_size_singlebin*bin + row];
+        }
+        class_call(array_interpolate_spline(
+                                            ptr->nz_z,
+                                            ptr->nz_size_singlebin,
+                                            tmp_nz_nz,
+                                            tmp_nz_ddnz,
+                                            1,
+                                            z,
+                                            &last_index,
+                                            &dNdz,
+                                            1,
+                                            ptr->error_message),
+                   ptr->error_message,
+                   ptr->error_message);
+
+        free(tmp_nz_nz);
+        free(tmp_nz_ddnz);
+      }
+      
+
+    *selection *= dNdz;
+
+    return _SUCCESS_;
+  }
+
+  /* get here only if selection type was unrecognized */
   class_stop(ptr->error_message,
              "invalid choice of selection function");
 
@@ -2820,6 +2884,9 @@ int transfer_selection_times(
   if (ppt->selection==dirac) {
     z = ppt->selection_mean[bin];
   }
+  if (ppt->selection==custom) {
+    z = 2.99;
+  }
 
   class_call(background_tau_of_z(pba,
                                  z,
@@ -2837,6 +2904,9 @@ int transfer_selection_times(
   }
   if (ppt->selection==dirac) {
     z = ppt->selection_mean[bin];
+  }
+  if (ppt->selection==custom) {
+    z = 0.;
   }
 
   class_call(background_tau_of_z(pba,
@@ -2935,6 +3005,7 @@ int transfer_selection_compute(
                  ptr->error_message,
                  ptr->error_message);
 
+      printf("%d %f %f\n", bin, z, selection[index_tau]);
       /* get corresponding dN/dtau = dN/dz * dz/dtau = dN/dz * H */
       selection[index_tau] *= pvecback[pba->index_bg_H];
 
@@ -4151,17 +4222,22 @@ int transfer_select_radial_function(
 /* for reading global selection function (ie the one multiplying the selection function of each bin) */
 
 int transfer_global_selection_read(
-                                   struct transfer * ptr
+                                   struct transfer * ptr,
+                                   struct perturbations * ppt
                                    ) {
 
   /* for reading selection function */
   FILE * input_file;
   int row,status;
-  double tmp1,tmp2;
+  int tmp1;
+  double tmp2, tmp3;
 
   ptr->nz_size = 0;
+  ptr->nz_size_singlebin = 0;
 
   if (ptr->has_nz_file == _TRUE_) {
+
+    // printf("FILENAME: %s\n", ptr->nz_file_name);
 
     input_file = fopen(ptr->nz_file_name,"r");
     class_test(input_file == NULL,
@@ -4169,34 +4245,53 @@ int transfer_global_selection_read(
                "Could not open file %s!",ptr->nz_file_name);
 
     /* Find size of table */
-    for (row=0,status=2; status==2; row++){
-      status = fscanf(input_file,"%lf %lf",&tmp1,&tmp2);
+    for (row=0,status=3; status==3; row++){
+      status = fscanf(input_file,"%d %lf %lf",&tmp1,&tmp2,&tmp3);
+      // printf("TMPS: %d %lf %lf\n", &tmp1,&tmp2,&tmp3);
+      // printf("STATUS: %d\n", status);
+      if (tmp1 == 0){
+        ptr->nz_size_singlebin = row + 1;
+        } //Constantly set bin size. Last time this is updated is last time tmp == N
     }
     rewind(input_file);
     ptr->nz_size = row-1;
 
+    // printf("SINGLEBIN_SIZE: %d\n", ptr->nz_size_singlebin);
+    // printf("NZ_SIZE: %d\n", ptr->nz_size);
+
     /* Allocate room for interpolation table */
-    class_alloc(ptr->nz_z,sizeof(double)*ptr->nz_size,ptr->error_message);
-    class_alloc(ptr->nz_nz,sizeof(double)*ptr->nz_size,ptr->error_message);
-    class_alloc(ptr->nz_ddnz,sizeof(double)*ptr->nz_size,ptr->error_message);
+    class_alloc(ptr->nz_z,sizeof(double)*ptr->nz_size_singlebin, ptr->error_message);
+    class_alloc(ptr->nz_nz,sizeof(double)*ptr->nz_size,   ptr->error_message);
+    class_alloc(ptr->nz_ddnz,sizeof(double)*ptr->nz_size, ptr->error_message);
 
     for (row=0; row<ptr->nz_size; row++){
-      status = fscanf(input_file,"%lf %lf",
-                      &ptr->nz_z[row],&ptr->nz_nz[row]);
+
+      if (row < ptr->nz_size_singlebin){
+        status = fscanf(input_file,"%d %lf %lf", &tmp1, &ptr->nz_z[row], &ptr->nz_nz[row]);
+        // printf("%d %lf %lf\n", tmp1, ptr->nz_z[row], ptr->nz_nz[row]);
+      }
+      else {
+        status = fscanf(input_file,"%d %lf %lf", &tmp1, &tmp2, &ptr->nz_nz[row]);
+        // printf("%d %lf %lf\n", tmp1, tmp2, ptr->nz_nz[row]);
+      }
+
       //printf("%d: (z,dNdz) = (%g,%g)\n",row,ptr->nz_z[row],ptr->nz_nz[row]);
     }
+
     fclose(input_file);
 
+    // printf("SELECTION_NUM: %d\n", ppt->selection_num);
     /* Call spline interpolation: */
     class_call(array_spline_table_lines(ptr->nz_z,
-                                        ptr->nz_size,
+                                        ptr->nz_size_singlebin,
                                         ptr->nz_nz,
-                                        1,
+                                        ppt->selection_num, //number of different splines to do
                                         ptr->nz_ddnz,
                                         _SPLINE_EST_DERIV_,
                                         ptr->error_message),
                ptr->error_message,
                ptr->error_message);
+
   }
 
   ptr->nz_evo_size = 0;
@@ -4598,14 +4693,14 @@ int transfer_get_lmax(int (*get_xmin_generic)(int sgnK,
  */
 
 int transfer_precompute_selection(
-                                  struct precision * ppr,
-                                  struct background * pba,
-                                  struct perturbations * ppt,
-                                  struct transfer * ptr,
-                                  double tau_rec,
-                                  int tau_size_max,
-                                  double ** window /* Pass a pointer to the pointer, so the pointer can be allocated inside of the function */
-                                  ){
+                     struct precision * ppr,
+                     struct background * pba,
+                     struct perturbations * ppt,
+                     struct transfer * ptr,
+                     double tau_rec,
+                     int tau_size_max,
+                     double ** window /* Pass a pointer to the pointer, so the pointer can be allocated inside of the function */
+                     ){
   /** Summary: */
 
   /** - define local variables */
@@ -4676,32 +4771,32 @@ int transfer_precompute_selection(
 
     /* First set the corresponding tau size */
     class_call(transfer_source_tau_size(ppr,
-                                        pba,
-                                        ppt,
-                                        ptr,
-                                        tau_rec,
-                                        tau0,
-                                        index_md,
-                                        index_tt,
-                                        &tau_size),
-               ptr->error_message,
-               ptr->error_message);
+                                    pba,
+                                    ppt,
+                                    ptr,
+                                    tau_rec,
+                                    tau0,
+                                    index_md,
+                                    index_tt,
+                                    &tau_size),
+           ptr->error_message,
+           ptr->error_message);
 
     /* Start with non-integrated contributions */
     if (_nonintegrated_ncl_) {
 
       _get_bin_nonintegrated_ncl_(index_tt)
 
-        /* redefine the time sampling */
-        class_call(transfer_selection_sampling(ppr,
-                                               pba,
-                                               ppt,
-                                               ptr,
-                                               bin,
-                                               tau0_minus_tau,
-                                               tau_size),
-                   ptr->error_message,
-                   ptr->error_message);
+      /* redefine the time sampling */
+      class_call(transfer_selection_sampling(ppr,
+                                             pba,
+                                             ppt,
+                                             ptr,
+                                             bin,
+                                             tau0_minus_tau,
+                                             tau_size),
+                 ptr->error_message,
+                 ptr->error_message);
 
       class_test(tau0 - tau0_minus_tau[0] > ppt->tau_sampling[ppt->tau_size-1],
                  ptr->error_message,
@@ -4845,14 +4940,14 @@ int transfer_precompute_selection(
 
       _get_bin_integrated_ncl_(index_tt)
 
-        /* dirac case */
-        if (ppt->selection == dirac) {
-          tau_sources_size=1;
-        }
+      /* dirac case */
+      if (ppt->selection == dirac) {
+        tau_sources_size=1;
+      }
       /* other cases (gaussian, tophat...) */
-        else {
-          tau_sources_size=ppr->selection_sampling;
-        }
+      else {
+        tau_sources_size=ppr->selection_sampling;
+      }
 
       class_alloc(tau0_minus_tau_lensing_sources,
                   tau_sources_size*sizeof(double),
@@ -5067,7 +5162,7 @@ int transfer_f_evo(
                    int last_index,
                    double cotKgen, /* Should be FILLED with values of corresponding time */
                    double* f_evo
-                   ){
+                  ){
   /* Allocate temporary variables for calculation of f_evo */
   double z;
   double dNdz;
